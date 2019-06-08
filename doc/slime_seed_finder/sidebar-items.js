@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["generate_no_slime_chunks",""],["generate_slime_chunks",""],["generate_slime_chunks_or_not",""]],"mod":[["biome_layers",""],["chunk",""],["cubiomes_rs","This module was generated using the [C2Rust][1] tool and the C code from [Cubiomes][2]."],["cubiomes_test",""],["java_rng",""],["mc_rng",""],["seed_info",""],["slime",""],["voronoi",""]]});

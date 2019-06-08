@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>slime_seed_finder playground</title>
+        <style>
+            body {
+                background-color: #eee;
+            }
+            input {
+                font-family: monospace;
+            }
+            textarea {
+                font-family: monospace;
+            }
+            #demo {
+                position:fixed;
+                left:0;
+                top:0;
+                width:100%;
+                height:100%;
+                z-index:-1;
+                image-rendering:pixelated;
+            }
+        </style>
+        <script src="json-stringify-pretty-compact.js"></script>
+    </head>
+    <body>
+        <a href="https://github.com/Badel2/slime_seed_finder">SLIME SEED FINDER</a>
+        <strong>Under construction.</strong>
+        ENTER SEED:
+        <input type="text" id="worldSeed" placeholder="Enter world seed" value="12246546">
+        <button id="buttonSub2ToThe" onClick="seedPlus2ToThe48(false)">-2^48</button>
+        <button id="buttonAdd2ToThe" onClick="seedPlus2ToThe48(true)">+2^48</button>
+        <input type="text" id="add2ToTheN" size=2 value="48">
+        <input type="text" id="lastLayer" size=3 value="43">
+        <button id="layerPrev" onClick="updateWithLayerPlus(-1)">-</button>
+        <button id="layerNext" onClick="updateWithLayerPlus(+1)">+</button>
+        <button id="cacheLayers" onClick="pregenerateLayers()">CACHE</button>
+        <div style="width: 100%;">
+            <canvas id="demo"></canvas>
+            <div id="position_info"></div>
+            <div>
+                <button onClick="Game.zoomBy(0.8)">ZOOM -</button>
+                <button onClick="Game.zoomBy(1.25)">ZOOM +</button>
+                <input id="center_x" size=6 value="0">
+                <input id="center_z" size=6 value="0">
+                <button id="center_button">CENTER</button>
+                <input type="range" min="0" max="10" value="10" class="slider" id="gridSize">
+                <button onClick="Game.showGrid = !Game.showGrid; Game.dirty = true">TOGGLE GRID</button>
+            </div>
+        </div>
+
+        <div style="clear: both;"></div>
+          
+        <script src="common.js"></script>
+        <script src="fragment_map.js"></script>
+        <script type="text/javascript" src="wasm_gui.js"></script>
+        <script>
+            var scales = [4096, 2048, 2048, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 512, 256, 256, 256, 256, 256, 128, 64, 64, 256, 128, 64, 64, 64, 32, 32, 16, 16, 8, 4, 4, 128, 64, 32, 16, 8, 4, 4, 4, 4, 1];
+            var layerScale = 1;
+            {
+                var i = document.getElementById("lastLayer").value|0;
+                if(i >= 0 && i <= 43) {
+                    layerScale = scales[i];
+                }
+                if(i >= 100 && i <= 143) {
+                    layerScale = scales[i - 100];
+                }
+                if(i >= 200 && i <= 243) {
+                    layerScale = scales[i - 200];
+                }
+            }
+            document.getElementById("add2ToTheN").addEventListener("input", function(event) {
+                var value = document.getElementById("add2ToTheN").value|0;
+                if(value >= 0 && value <= 64) {} else { value = 0; }
+                document.getElementById("buttonSub2ToThe").innerHTML = "-2^" + value;
+                document.getElementById("buttonAdd2ToThe").innerHTML = "+2^" + value;
+            });
+            document.getElementById("lastLayer").addEventListener("input", function(event) {
+                updateWithLayerPlus(0);
+            });
+            function updateWithLayerPlus(x) {
+                var i = document.getElementById("lastLayer").value|0;
+                i += x;
+                document.getElementById("lastLayer").value = i;
+                if(i >= 0 && i <= 43) {
+                    var newScale = scales[i];
+                    Game.camera.resolutionChange(newScale / layerScale);
+                    layerScale = newScale;
+                    //Game.clear();
+                    Game.setActiveLayer(i);
+                }
+                if(i >= 100 && i <= 143) {
+                    var newScale = scales[i - 100];
+                    Game.camera.resolutionChange(newScale / layerScale);
+                    layerScale = newScale;
+                    //Game.clear();
+                    Game.setActiveLayer(i);
+                }
+                if(i >= 200 && i <= 243) {
+                    var newScale = scales[i - 200];
+                    Game.camera.resolutionChange(newScale / layerScale);
+                    layerScale = newScale;
+                    //Game.clear();
+                    Game.setActiveLayer(i);
+                }
+            }
+            function seedPlus2ToThe48(add_not_sub) {
+                var ws = document.getElementById('worldSeed');
+                var n = document.getElementById('add2ToTheN');
+                if(ws && n) {
+                    /*
+                    var seed = ctypes.Int64(ws.value);
+                    seed += ctypes.Int64("0x100000000");
+                    ws.value = seed.toString();
+                    */
+                    // Ok, I'll just implement it in Rust
+                    return Rust.wasm_gui.then( function( wasmgui ) {
+                        var new_value = ws.value;
+                        if (add_not_sub) {
+                            new_value = wasmgui.add_2_n(ws.value, n.value|0);
+                        } else {
+                            new_value = wasmgui.sub_2_n(ws.value, n.value|0);
+                        }
+                        if (new_value != ws.value) {
+                            ws.value = new_value;
+                            Game.clear();
+                        }
+                    }, function( err ) {
+                        console.error(err);
+                    });
+                }
+            }
+            function pregenerateLayers() {
+                // Only works well when current layer == 43
+                for(var j=0; j<=43; j++) {
+                    Game._drawLayer(j);
+                }
+            }
+
+            // Hacks to make workers return promises
+            // https://codeburst.io/promises-for-the-web-worker-9311b7831733
+            const resolves = {}
+            const rejects = {}
+            let globalMsgId = 0
+
+            // Activate calculation in the worker, returning a promise
+            function sendMsg(payload, worker){
+              const msgId = globalMsgId++
+              const msg = {
+                id: msgId,
+                payload
+              }
+
+              return new Promise(function (resolve, reject) {
+                // save callbacks for later
+                resolves[msgId] = resolve
+                rejects[msgId] = reject
+
+                worker.postMessage(msg)
+              })
+            }
+
+            // Handle incoming calculation result
+            function handleMsg(msg) {
+              const {id, err, payload} = msg.data
+
+              if (payload) {
+                const resolve = resolves[id]
+                if (resolve) {
+                  resolve(payload)
+                }
+              } else {
+                // error condition
+                const reject = rejects[id]
+                if (reject) {
+                    if (err) {
+                      reject(err)
+                    } else {
+                      reject('Got nothing')
+                    }
+                }
+              }
+
+              // purge used callbacks
+              delete resolves[id]
+              delete rejects[id]
+            }
+
+            // Wrapper class
+            function Wrapper() {
+                this.maxWorkers = navigator.hardwareConcurrency || 4;
+                console.log("Creating " + this.maxWorkers + " workers");
+                this.workers = Array(this.maxWorkers);
+                for (var i=0; i<this.maxWorkers; i++) {
+                    this.workers[i] = new Worker('./worker_b.js');
+                    this.workers[i].onmessage = handleMsg;
+                }
+                this.incr = 0;
+            }
+            Wrapper.prototype.sendMsg = function(payload) {
+                // Pooling strategy: send one message to each worker
+                this.incr++;
+                if(this.incr >= this.maxWorkers) {
+                    this.incr = 0;
+                }
+                payload.threadId = this.incr;
+                return sendMsg(payload, this.workers[this.incr]);
+            }
+
+            const work1 = new Wrapper();
+
+            var FRAG_SIZE = 256;
+            // Generate fragment
+            // This function should return a promise, which is interpreted as
+            // a HTML canvas
+            function generateFragmentB(layer, fx, fy) {
+                if (window.Worker) {
+                    var ws = document.getElementById('worldSeed');
+                    // Since js doesnt support 64 bit ints, we just pass
+                    // the string to the Rust code, it will be parsed there
+                    var seed = ws.value;
+                    var lastLayer = document.getElementById('lastLayer').value|0;
+                    return work1.sendMsg({ fx: fx, fy: fy, seed: seed, FRAG_SIZE: FRAG_SIZE, lastLayer: layer }).then(function(e) {
+                        /*
+                        console.log("Copying to canvas: " + fx + ", " + fy);
+                        */
+                        // Create off-screen canvas
+                        var c = document.createElement('canvas');
+                        c.width = FRAG_SIZE;
+                        c.height = FRAG_SIZE;
+                        var ctx = c.getContext('2d');
+                        // Generate fragment
+                        var imageData = ctx.createImageData(FRAG_SIZE, FRAG_SIZE);
+                        //imageData.data = rvec; // please
+                        for(var i=0; i<FRAG_SIZE*FRAG_SIZE*4; i++) {
+                            imageData.data[i] = e.rvec[i];
+                        }
+                        ctx.putImageData(imageData, 0, 0);
+                        return c;
+                    });
+                } else {
+                    return Rust.wasm_gui.then( function( wasmgui ) {
+                        var ws = document.getElementById('worldSeed');
+                        // Since js doesnt support 64 bit ints, we just pass
+                        // the string to the Rust code, it will be parsed there
+                        var seed = ws.value;
+                        console.log("Seed: " + seed);
+                        console.log("Generating fragment: " + fx + ", " + fy);
+                        var rvec = wasmgui.generate_fragment(fx, fy, seed, FRAG_SIZE);
+                        console.log("Copying to canvas: " + fx + ", " + fy);
+                        // Create off-screen canvas
+                        var c = document.createElement('canvas');
+                        c.width = FRAG_SIZE;
+                        c.height = FRAG_SIZE;
+                        var ctx = c.getContext('2d');
+                        // Generate fragment
+                        var imageData = ctx.createImageData(FRAG_SIZE, FRAG_SIZE);
+                        //imageData.data = rvec; // please
+                        for(var i=0; i<FRAG_SIZE*FRAG_SIZE*4; i++) {
+                            imageData.data[i] = rvec[i];
+                        }
+                        ctx.putImageData(imageData, 0, 0);
+                        return c;
+                    }, function( err ) {
+                        console.error(err);
+                    });
+                }
+            }
+
+            map.generateFragment = generateFragmentB;
+
+            var ws = document.getElementById('worldSeed');
+            ws.oninput = function() {
+                // Regenerate map when seed changes
+                Game.clear();
+            };
+
+            function resize() {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+                Game.dirty = true;
+            }
+
+            window.addEventListener('resize', resize, false); resize();
+        </script>
+    </body>
+</html>
